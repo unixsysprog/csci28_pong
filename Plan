@@ -1,0 +1,203 @@
+  Author: Matthew Thomas
+    Date: 4/6/2019
+Contains: Design details for CSCI E-215 homework 4
+==================================================
+Project: pong
+
+Purpose: Play a one-player game of pong; last as long as you can with
+         three balls.
+
+Outline:
+    The player moves a paddle up and down using the 'k' and 'm' keys
+    respectively. The goal is to bounce the ball off the paddle and keep
+    the ball in play for as long as possible. You get three balls (lives)
+    and a "TOTAL TIME" clock keeps track of how long you have lasted. Once
+    you miss three balls, the game ends and displays a message containing
+    your score (time). To quit before playing through all three lives, type
+    'Q' to exit.
+
+Data Structures:
+    pong is written in a pseudo object-oriented way. The game has a few key
+    components, each with separate .c and .h files to provide interfaces to
+    the objects they represent. In this case, the main game logic resides in
+    pong.c, and the object code resides in ball.c, clock.c, court.c, and
+    paddle.c. The game also makes use of alarmlib.c which provides "timer
+    functions for [a] higher resolution clock".
+    
+    Each file/object has a mix of internal functions to get, set, and modify
+    variables of the structs they create, as well as external interfaces to
+    control the movement and display. A list of these functions can be found
+    at the top of each respective file. For more info on the purpose of each
+    object, and how they relate to the big picture, see the sections below.
+
+pong.c
+    This file contains the main logic/loop for the game. As described in
+    further detail in the "Program Flow" section, the terminal/curses is
+    set up and all objects (ball, paddle, court, clock) are created via
+    calls to their respective .c files.
+
+ball.c
+    This file is responsible for creating an instance of a ball. Each ball
+    keeps track of its position, speed, direction, and number of balls
+    remaining. Position, direction, and speed (delay + count) are randomly
+    generated, within a range, when initialized. Upon making contact with
+    the paddle, the speed (delay) value will change, randomly.
+    
+    serve() is one of the external interface functions that (re)initializes
+    the ball's internal values, and decrements the number of balls remaining
+    by one. The ball_move() function checks the current count (decreased with
+    every SIGALRM), and sees if it is time to move yet (it has decreased
+    'delay' number of times). bounce_or_lose() is another key function that
+    checks to see if the ball has made contact with a wall, a paddle (pointed
+    to by *pp), or has gone out of play.
+
+clock.c
+    This file is responsible for keeping track of the time elapsed since the
+    start of the game. For each SIGALRM that is triggered, clock_tick() is
+    called. This function updates the static clock, file-scoped to clock.c,
+    to keep track of the elapsed seconds and minutes.
+    
+    Display of the time is handled via other files, notably, the print_time()
+    function in court.c and the exit_message() function in pong.c to display
+    the player's final time (score).
+
+court.c
+    This file handles all information relating to the court-dimensions and
+    printing all features, minus the ball and the paddle. Information is
+    stored in a struct that contains the top, right, bottom, and left sides
+    of the court (or where the walls/paddle should be drawn). Two pieces of
+    game-status information are printed in a header, one row above the top
+    wall: BALLS LEFT and TOTAL TIME. court.c contains the logic for where
+    to print this information and how to format it, but the actual info is
+    either passed in -- print_balls() -- or obtained through a functional
+    interface -- get_mins() and get_secs() -- for the timer struct in clock.c.
+    
+    Other external interface functions exist for court.c to allow other files
+    to see where the outer-walls exist. There is one function for each wall,
+    all taking the form of get_wall_edge(), where "wall" is either top, right,
+    bot, or left, with a return type of int to indicate the row or column the
+    wall is.
+        
+paddle.c
+    This file is responsible for creating an instance of a paddle. Each paddle
+    keeps track of its boundaries (top and bottom rows), as well as its current
+    position on the screen (top, bottom, and column).
+    
+    A paddle is controlled through player keyboard-input, with 'k' triggering
+    a call to paddle_up() and 'm' triggering a call to paddle_down(). These
+    functions check if the paddle has reached the boundaries of the court,
+    and if not, erases the old top/bottom of the paddle and draws a char in
+    the new vertical position.
+    
+    paddle_contact() is a key external interface function that checks if an
+    object (in this game's case, the y coordinate of a ball), and sees if
+    that is within the paddle's current coordinates. 
+
+
+Signal Handling:
+    This program uses the non-portable signal() instead of sigaction() to
+    handle signals. One area for improvement would be to switch these calls
+    to sigaction() to have greater control over default actions when signals
+    occur. One benefit this would provide, as pointed out in Piazza posts
+    @247 and @249, is ensuring standard system handling of getch() calls.
+    Some systems will return an EINTR error while others will return to
+    getch() waiting for keyboard input. Changing all signal calls to
+    sigaction() would allow for changing this default to always return an
+    error when the signal handler triggers.
+
+Program Flow:
+    1 - Start by initializing curses, signal handlers, and objects for each
+        of the main components of the game -- ball, paddle, clock, and court.
+    2 - Once the set up is complete, start a timer that sends out SIGALRMs at
+        regular intervals and serve the first ball.
+    3 - The program blocks on player keyboard input to move the paddle up and
+        down. Meanwhile, the ball continues to animate due to a steady stream
+        of SIGALRMs.
+    4 - For each ball or paddle movement, the program calls a function
+        bounce_or_lose() which responds with NO_CONTACT, BOUNCE, or LOSE.
+            When NO_CONTACT, nothing special happens.
+            When BOUNCE, the ball has contacted one of the three court walls.
+                Change the ball's direction and keep it moving.
+            When LOSE, the ball has hit the right-edge of the screen WITHOUT
+                coming in contact with the paddle.
+    5 - If a ball is lost, and there are more balls left to play, decrement
+        count by one and serve the ball again.
+    6 - When there are no more balls left to play, display a bolded message
+        in the center of the screen with the user's final time (score) and
+        then return the user to the terminal.
+
+Error Handling:
+    There are only a handful of error conditions in the pong game. An error
+    can occur when trying to malloc() space for ball or paddle objects. In
+    these cases, the constructor will close curses, display an error message,
+    and exit out of the game.
+    
+    The other error condition is the terminal window being too small to draw
+    the game. Minimum dimensions are set in pong.c -- MIN_COLS is 40 and
+    MIN_LINES is 11. The MIN_COLS dimension ensures that the two game
+    counters -- balls left and total time -- can be displayed without overlap.
+    The MIN_LINES dimension ensures that, when taking the border into account,
+    the playable court is at least three lines tall (which would create a
+    paddle of size one). If these minimum dimensions are not met, pong will
+    close curses so it can output a message to stderr, and exit.
+    
+    On a SIGWINCH signal, a resize_handler() fires which closes the game and
+    prints a message to stderr that window-resizing is not supported. A future
+    improvement could be made to more gracefully handle this error to either
+    restart the game, or adapt to the new terminal dimensions (see Piazza
+    post @239).
+    
+Race condition:
+    As noted in the assignment handout, the design of this pong game includes
+    a race condition where, depending on the timing of operations and SIGALRM
+    firings, the printing to the screen may be unexpected (e.g. the paddle
+    moves to draw its new position, but a SIGARLM triggers a ball movement
+    and draw; the paddle char might appear next to the ball).
+    
+    While not implemented in this submission, my approach to handling this
+    race condition would be to use signals for keyboard input -- instead of
+    blocking with getch() -- and keep track of the order of signals with a
+    queue.
+    
+    To use signals for keyboard input, I would use aio_read() to store
+    keyboard input in a "struct aiocb" buffer. A SIGIO signal handler would
+    also be needed to indicate a key was pressed. Instead of processing timer
+    ticks in the SIGALRM handler and key presses in the SIGIO handler, the
+    only responsibility of each would be to log their respective requests
+    in a queue.  These "requests" would be stored in the queue as symbolic
+    constants, such as ALARM and INPUT, for example.
+    
+    Then, back in the main while loop, the queue would be processed in order;
+    first in, first out. If the next queue entry is an ALARM, a function would
+    be called to add a clock_tick(), update the ball, and check
+    bounce_or_lose(), much like the alarm_handler() function does in the
+    current implementation. If the next queue entry is an INPUT, a function
+    would be called to check which key was pressed and respond accordingly
+    (i.e. exit on 'Q', and move the paddle up or down for 'k' and 'm'
+    respectively).
+    
+    To accomplish this, I would write a set of queue functions to store
+    the signal requests in an integer array. Some key functions needed for
+    mainting the queue are described below:
+           push() - Adds/inserts a value to the queue. Values are added to the
+                    end of the array, pointed to by 'end'.
+            pop() - Removes and returns the value at the front of the queue,
+                    pointed to by 'front'.
+        is_full() - A helper function to aid with push()ing to the queue. If
+                    the queue is full, an error would be returned to be
+                    handled back in the main loop.
+    
+    To clarify, the queue (an int array), is a fixed size and circular. When
+    requests in the queue are retrieved, pop(), and processed in the main
+    while loop, the 'front' of the queue increments by one. When new requests
+    are added, push(), the 'end' increments by one. And, being a circular
+    queue, when the 'end' passes the size of the int array, it loops back
+    around to array[0] if there is room left in the array (i.e. is_full()
+    returns false).
+
+    This handles the race condition problem because all of the heavy
+    processing, moving/printing to the curses window, is handled in the main
+    loop, rather than in signal handlers. The two signal handlers, one for
+    SIGALRMs and one for SIGIOs, just add an int to a queue. The main loop
+    then processes the queue, one request at a time, thereby preventing
+    a conflict between two signals that overlap each other.
